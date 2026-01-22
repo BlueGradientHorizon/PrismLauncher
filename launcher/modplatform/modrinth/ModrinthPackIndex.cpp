@@ -126,7 +126,8 @@ ModPlatform::IndexedVersion Modrinth::loadIndexedPackVersion(QJsonObject& obj, Q
         return {};
     }
     for (auto mcVer : versionArray) {
-        file.mcVersion.append(ModrinthAPI::mapMCVersionFromModrinth(mcVer.toString()));
+        file.mcVersion.append({ ModrinthAPI::mapMCVersionFromModrinth(mcVer.toString()),
+                                mcVer.toString() });  // double this so we can check both strings when filtering
     }
     auto loaders = Json::requireArray(obj, "loaders");
     for (auto loader : loaders) {
@@ -145,7 +146,7 @@ ModPlatform::IndexedVersion Modrinth::loadIndexedPackVersion(QJsonObject& obj, Q
     }
     file.version = Json::requireString(obj, "name");
     file.version_number = Json::requireString(obj, "version_number");
-    file.version_type = ModPlatform::IndexedVersionType(Json::requireString(obj, "version_type"));
+    file.version_type = ModPlatform::IndexedVersionType::fromString(Json::requireString(obj, "version_type"));
 
     file.changelog = Json::requireString(obj, "changelog");
 

@@ -91,6 +91,7 @@
 #include <QActionGroup>
 #include <QMainWindow>
 #include <QScreen>
+#include <QStandardPaths>
 #include <QWindow>
 
 #ifdef Q_OS_LINUX
@@ -159,11 +160,13 @@ class OrSetting : public Setting {
     std::shared_ptr<Setting> m_b;
 };
 
-MinecraftInstance::MinecraftInstance(SettingsObjectPtr globalSettings, SettingsObjectPtr settings, const QString& rootDir)
-    : BaseInstance(globalSettings, settings, rootDir)
+MinecraftInstance::MinecraftInstance(SettingsObject* globalSettings, std::unique_ptr<SettingsObject> settings, const QString& rootDir)
+    : BaseInstance(globalSettings, std::move(settings), rootDir)
 {
     m_components.reset(new PackProfile(this));
 }
+
+MinecraftInstance::~MinecraftInstance() {}
 
 void MinecraftInstance::saveNow()
 {
@@ -268,7 +271,7 @@ void MinecraftInstance::loadSpecificSettings()
 
 void MinecraftInstance::updateRuntimeContext()
 {
-    m_runtimeContext.updateFromInstanceSettings(m_settings);
+    m_runtimeContext.updateFromInstanceSettings(m_settings.get());
     m_components->invalidateLaunchProfile();
 }
 
@@ -277,9 +280,9 @@ QString MinecraftInstance::typeName() const
     return "Minecraft";
 }
 
-std::shared_ptr<PackProfile> MinecraftInstance::getPackProfile() const
+PackProfile* MinecraftInstance::getPackProfile() const
 {
-    return m_components;
+    return m_components.get();
 }
 
 QSet<QString> MinecraftInstance::traits() const
@@ -307,9 +310,9 @@ void MinecraftInstance::populateLaunchMenu(QMenu* menu)
 
     normalLaunchDemo->setEnabled(supportsDemo());
 
-    connect(normalLaunch, &QAction::triggered, [this] { APPLICATION->launch(shared_from_this()); });
-    connect(normalLaunchOffline, &QAction::triggered, [this] { APPLICATION->launch(shared_from_this(), false, false); });
-    connect(normalLaunchDemo, &QAction::triggered, [this] { APPLICATION->launch(shared_from_this(), false, true); });
+    connect(normalLaunch, &QAction::triggered, [this] { APPLICATION->launch(this); });
+    connect(normalLaunchOffline, &QAction::triggered, [this] { APPLICATION->launch(this, false, false); });
+    connect(normalLaunchDemo, &QAction::triggered, [this] { APPLICATION->launch(this, false, true); });
 
     QString profilersTitle = tr("Profilers");
     menu->addSeparator()->setText(profilersTitle);
@@ -483,6 +486,28 @@ QStringList MinecraftInstance::getNativeJars()
     return nativeJars;
 }
 
+static QString replaceTokensIn(const QString& text, const QMap<QString, QString>& with)
+{
+    // TODO: does this still work??
+    QString result;
+    static const QRegularExpression s_token_regexp("\\$\\{(.+)\\}", QRegularExpression::InvertedGreedinessOption);
+    QStringList list;
+    QRegularExpressionMatchIterator i = s_token_regexp.globalMatch(text);
+    int lastCapturedEnd = 0;
+    while (i.hasNext()) {
+        QRegularExpressionMatch match = i.next();
+        result.append(text.mid(lastCapturedEnd, match.capturedStart()));
+        QString key = match.captured(1);
+        auto iter = with.find(key);
+        if (iter != with.end()) {
+            result.append(*iter);
+        }
+        lastCapturedEnd = match.capturedEnd();
+    }
+    result.append(text.mid(lastCapturedEnd));
+    return result;
+}
+
 QStringList MinecraftInstance::extraArguments()
 {
     auto list = BaseInstance::extraArguments();
@@ -495,7 +520,11 @@ QStringList MinecraftInstance::extraArguments()
     }
     auto addn = m_components->getProfile()->getAddnJvmArguments();
     if (!addn.isEmpty()) {
-        list.append(addn);
+        QMap<QString, QString> tokenMapping = makeProfileVarMapping(m_components->getProfile());
+
+        for (const QString& item : addn) {
+            list.append(replaceTokensIn(item, tokenMapping));
+        }
     }
     auto agents = m_components->getProfile()->getAgents();
     for (auto agent : agents) {
@@ -559,6 +588,16 @@ QStringList MinecraftInstance::javaArguments()
     args << QString(
         "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_"
         "minecraft.exe.heapdump");
+#endif
+
+    // LWJGL2 reads `LWJGL_DISABLE_XRANDR` to force disable xrandr usage and fall back to xf86videomode.
+    // It *SHOULD* check for the executable to exist before trying to use it for queries but it doesnt,
+    // so WE can and force disable xrandr if it is not available.
+#ifdef Q_OS_LINUX
+    // LWJGL2 is "org.lwjgl" LWJGL3 is "org.lwjgl3"
+    if (m_components->getComponent("org.lwjgl") != nullptr && QStandardPaths::findExecutable("xrandr").isEmpty()) {
+        args << QString("-DLWJGL_DISABLE_XRANDR=true");
+    }
 #endif
 
     int min = settings()->get("MinMemAlloc").toInt();
@@ -705,28 +744,6 @@ QProcessEnvironment MinecraftInstance::createLaunchEnvironment()
     return env;
 }
 
-static QString replaceTokensIn(QString text, QMap<QString, QString> with)
-{
-    // TODO: does this still work??
-    QString result;
-    static const QRegularExpression s_token_regexp("\\$\\{(.+)\\}", QRegularExpression::InvertedGreedinessOption);
-    QStringList list;
-    QRegularExpressionMatchIterator i = s_token_regexp.globalMatch(text);
-    int lastCapturedEnd = 0;
-    while (i.hasNext()) {
-        QRegularExpressionMatch match = i.next();
-        result.append(text.mid(lastCapturedEnd, match.capturedStart()));
-        QString key = match.captured(1);
-        auto iter = with.find(key);
-        if (iter != with.end()) {
-            result.append(*iter);
-        }
-        lastCapturedEnd = match.capturedEnd();
-    }
-    result.append(text.mid(lastCapturedEnd));
-    return result;
-}
-
 QStringList MinecraftInstance::processMinecraftArgs(AuthSessionPtr session, MinecraftTarget::Ptr targetToJoin) const
 {
     auto profile = m_components->getProfile();
@@ -748,38 +765,26 @@ QStringList MinecraftInstance::processMinecraftArgs(AuthSessionPtr session, Mine
         }
     }
 
-    QMap<QString, QString> token_mapping;
+    QMap<QString, QString> tokenMapping = makeProfileVarMapping(profile);
+
     // yggdrasil!
     if (session) {
         // token_mapping["auth_username"] = session->username;
-        token_mapping["auth_session"] = session->session;
-        token_mapping["auth_access_token"] = session->access_token;
-        token_mapping["auth_player_name"] = session->player_name;
-        token_mapping["auth_uuid"] = session->uuid;
-        token_mapping["user_properties"] = session->serializeUserProperties();
-        token_mapping["user_type"] = session->user_type;
+        tokenMapping["auth_session"] = session->session;
+        tokenMapping["auth_access_token"] = session->access_token;
+        tokenMapping["auth_player_name"] = session->player_name;
+        tokenMapping["auth_uuid"] = session->uuid;
+        tokenMapping["user_properties"] = session->serializeUserProperties();
+        tokenMapping["user_type"] = session->user_type;
+
         if (session->demo) {
             args_pattern += " --demo";
         }
     }
 
-    token_mapping["profile_name"] = name();
-    token_mapping["version_name"] = profile->getMinecraftVersion();
-    token_mapping["version_type"] = profile->getMinecraftVersionType();
-
-    QString absRootDir = QDir(gameRoot()).absolutePath();
-    token_mapping["game_directory"] = absRootDir;
-    QString absAssetsDir = QDir("assets/").absolutePath();
-    auto assets = profile->getMinecraftAssets();
-    token_mapping["game_assets"] = AssetsUtils::getAssetsDir(assets->id, resourcesDir()).absolutePath();
-
-    // 1.7.3+ assets tokens
-    token_mapping["assets_root"] = absAssetsDir;
-    token_mapping["assets_index_name"] = assets->id;
-
     QStringList parts = args_pattern.split(' ', Qt::SkipEmptyParts);
     for (int i = 0; i < parts.length(); i++) {
-        parts[i] = replaceTokensIn(parts[i], token_mapping);
+        parts[i] = replaceTokensIn(parts[i], tokenMapping);
     }
     return parts;
 }
@@ -961,8 +966,8 @@ QStringList MinecraftInstance::verboseDescription(AuthSessionPtr session, Minecr
         }
     };
 
-    printModList("Mods", *(loaderModList().get()));
-    printModList("Core Mods", *(coreModList().get()));
+    printModList("Mods", *loaderModList());
+    printModList("Core Mods", *coreModList());
 
     // jar mods
     auto& jarMods = profile->getJarMods();
@@ -1024,6 +1029,29 @@ QMap<QString, QString> MinecraftInstance::createCensorFilterFromSession(AuthSess
     return filter;
 }
 
+QMap<QString, QString> MinecraftInstance::makeProfileVarMapping(std::shared_ptr<LaunchProfile> profile) const
+{
+    QMap<QString, QString> result;
+
+    result["profile_name"] = name();
+    result["version_name"] = profile->getMinecraftVersion();
+    result["version_type"] = profile->getMinecraftVersionType();
+
+    QString absRootDir = QDir(gameRoot()).absolutePath();
+    result["game_directory"] = absRootDir;
+    QString absAssetsDir = QDir("assets/").absolutePath();
+    auto assets = profile->getMinecraftAssets();
+    result["game_assets"] = AssetsUtils::getAssetsDir(assets->id, resourcesDir()).absolutePath();
+
+    // 1.7.3+ assets tokens
+    result["assets_root"] = absAssetsDir;
+    result["assets_index_name"] = assets->id;
+
+    result["library_directory"] = APPLICATION->metacache()->getBasePath("libraries");
+
+    return result;
+}
+
 QStringList MinecraftInstance::getLogFileSearchPaths()
 {
     return { FS::PathCombine(gameRoot(), "crash-reports"), FS::PathCombine(gameRoot(), "logs"), gameRoot() };
@@ -1080,11 +1108,10 @@ QList<LaunchStep::Ptr> MinecraftInstance::createUpdateTask()
     };
 }
 
-shared_qobject_ptr<LaunchTask> MinecraftInstance::createLaunchTask(AuthSessionPtr session, MinecraftTarget::Ptr targetToJoin)
+LaunchTask* MinecraftInstance::createLaunchTask(AuthSessionPtr session, MinecraftTarget::Ptr targetToJoin)
 {
     updateRuntimeContext();
-    // FIXME: get rid of shared_from_this ...
-    auto process = LaunchTask::create(std::dynamic_pointer_cast<MinecraftInstance>(shared_from_this()));
+    auto process = LaunchTask::create(this);
     auto pptr = process.get();
 
     APPLICATION->icons()->saveIcon(iconKey(), FS::PathCombine(gameRoot(), "icon.png"), "PNG");
@@ -1199,9 +1226,9 @@ shared_qobject_ptr<LaunchTask> MinecraftInstance::createLaunchTask(AuthSessionPt
     if (m_settings->get("QuitAfterGameStop").toBool()) {
         process->appendStep(makeShared<QuitAfterGameStop>(pptr));
     }
-    m_launchProcess = process;
-    emit launchTaskChanged(m_launchProcess);
-    return m_launchProcess;
+    m_launchProcess = std::move(process);
+    emit launchTaskChanged(m_launchProcess.get());
+    return m_launchProcess.get();
 }
 
 JavaVersion MinecraftInstance::getJavaVersion()
@@ -1209,80 +1236,80 @@ JavaVersion MinecraftInstance::getJavaVersion()
     return JavaVersion(settings()->get("JavaVersion").toString());
 }
 
-std::shared_ptr<ModFolderModel> MinecraftInstance::loaderModList()
+ModFolderModel* MinecraftInstance::loaderModList()
 {
     if (!m_loader_mod_list) {
         bool is_indexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_loader_mod_list.reset(new ModFolderModel(modsRoot(), this, is_indexed, true));
     }
-    return m_loader_mod_list;
+    return m_loader_mod_list.get();
 }
 
-std::shared_ptr<ModFolderModel> MinecraftInstance::coreModList()
+ModFolderModel* MinecraftInstance::coreModList()
 {
     if (!m_core_mod_list) {
         bool is_indexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_core_mod_list.reset(new ModFolderModel(coreModsDir(), this, is_indexed, true));
     }
-    return m_core_mod_list;
+    return m_core_mod_list.get();
 }
 
-std::shared_ptr<ModFolderModel> MinecraftInstance::nilModList()
+ModFolderModel* MinecraftInstance::nilModList()
 {
     if (!m_nil_mod_list) {
         bool is_indexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_nil_mod_list.reset(new ModFolderModel(nilModsDir(), this, is_indexed, false));
     }
-    return m_nil_mod_list;
+    return m_nil_mod_list.get();
 }
 
-std::shared_ptr<ResourcePackFolderModel> MinecraftInstance::resourcePackList()
+ResourcePackFolderModel* MinecraftInstance::resourcePackList()
 {
     if (!m_resource_pack_list) {
         bool is_indexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_resource_pack_list.reset(new ResourcePackFolderModel(resourcePacksDir(), this, is_indexed, true));
     }
-    return m_resource_pack_list;
+    return m_resource_pack_list.get();
 }
 
-std::shared_ptr<TexturePackFolderModel> MinecraftInstance::texturePackList()
+TexturePackFolderModel* MinecraftInstance::texturePackList()
 {
     if (!m_texture_pack_list) {
         bool is_indexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_texture_pack_list.reset(new TexturePackFolderModel(texturePacksDir(), this, is_indexed, true));
     }
-    return m_texture_pack_list;
+    return m_texture_pack_list.get();
 }
 
-std::shared_ptr<ShaderPackFolderModel> MinecraftInstance::shaderPackList()
+ShaderPackFolderModel* MinecraftInstance::shaderPackList()
 {
     if (!m_shader_pack_list) {
         bool is_indexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_shader_pack_list.reset(new ShaderPackFolderModel(shaderPacksDir(), this, is_indexed, true));
     }
-    return m_shader_pack_list;
+    return m_shader_pack_list.get();
 }
 
-std::shared_ptr<DataPackFolderModel> MinecraftInstance::dataPackList()
+DataPackFolderModel* MinecraftInstance::dataPackList()
 {
     if (!m_data_pack_list && settings()->get("GlobalDataPacksEnabled").toBool()) {
         bool isIndexed = !APPLICATION->settings()->get("ModMetadataDisabled").toBool();
         m_data_pack_list.reset(new DataPackFolderModel(dataPacksDir(), this, isIndexed, true));
     }
-    return m_data_pack_list;
+    return m_data_pack_list.get();
 }
 
-QList<std::shared_ptr<ResourceFolderModel>> MinecraftInstance::resourceLists()
+QList<ResourceFolderModel*> MinecraftInstance::resourceLists()
 {
     return { loaderModList(), coreModList(), nilModList(), resourcePackList(), texturePackList(), shaderPackList(), dataPackList() };
 }
 
-std::shared_ptr<WorldList> MinecraftInstance::worldList()
+WorldList* MinecraftInstance::worldList()
 {
     if (!m_world_list) {
         m_world_list.reset(new WorldList(worldDir(), this));
     }
-    return m_world_list;
+    return m_world_list.get();
 }
 
 QList<Mod*> MinecraftInstance::getJarMods() const

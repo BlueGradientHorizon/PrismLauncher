@@ -92,7 +92,7 @@ AppearanceWidget::~AppearanceWidget()
 
 void AppearanceWidget::applySettings()
 {
-    SettingsObjectPtr settings = APPLICATION->settings();
+    SettingsObject* settings = APPLICATION->settings();
     QString consoleFontFamily = m_ui->consoleFont->currentFont().family();
     settings->set("ConsoleFont", consoleFontFamily);
     settings->set("ConsoleFontSize", m_ui->fontSizeBox->value());
@@ -103,7 +103,7 @@ void AppearanceWidget::applySettings()
 
 void AppearanceWidget::loadSettings()
 {
-    SettingsObjectPtr settings = APPLICATION->settings();
+    SettingsObject* settings = APPLICATION->settings();
     QString fontFamily = settings->get("ConsoleFont").toString();
     QFont consoleFont(fontFamily);
     m_ui->consoleFont->setCurrentFont(consoleFont);
@@ -175,7 +175,7 @@ void AppearanceWidget::loadThemeSettings()
     m_ui->widgetStyleComboBox->clear();
     m_ui->catPackComboBox->clear();
 
-    const SettingsObjectPtr settings = APPLICATION->settings();
+    SettingsObject* settings = APPLICATION->settings();
 
     const QString currentIconTheme = settings->get("IconTheme").toString();
     const auto iconThemes = APPLICATION->themeManager()->getValidIconThemes();
@@ -232,7 +232,7 @@ void AppearanceWidget::updateConsolePreview()
     m_ui->consolePreview->clear();
     m_defaultFormat.setFont(QFont(fontFamily, fontSize));
 
-    auto print = [this, colors](const QString& message, MessageLevel::Enum level) {
+    auto print = [this, colors](const QString& message, MessageLevel level) {
         QTextCharFormat format(m_defaultFormat);
 
         QColor bg = colors.background.value(level);

@@ -93,9 +93,8 @@ class ResourceModel : public QAbstractListModel {
 
     void addPack(ModPlatform::IndexedPack::Ptr pack,
                  ModPlatform::IndexedVersion& version,
-                 std::shared_ptr<ResourceFolderModel> packs,
-                 bool is_indexed = false,
-                 QString custom_target_folder = {});
+                 ResourceFolderModel* packs,
+                 bool is_indexed = false);
     void removePack(const QString& rem);
     QList<DownloadTaskPtr> selectedPacks() { return m_selected; }
 

@@ -23,6 +23,7 @@
 #include "modplatform/flame/FlameAPI.h"
 #include "modplatform/flame/FlameModIndex.h"
 #include "settings/Setting.h"
+#include "tasks/SequentialTask.h"
 #include "tasks/Task.h"
 #include "ui/dialogs/CustomMessageBox.h"
 
@@ -174,7 +175,7 @@ void ResourceFolderModel::installResourceWithFlameMetadata(QString path, ModPlat
         };
 
         auto response = std::make_shared<QByteArray>();
-        auto job = FlameAPI().getProject(vers.addonId.toString(), response);
+        auto job = FlameAPI().getProject(vers.addonId.toString(), response.get());
         connect(job.get(), &Task::failed, this, install);
         connect(job.get(), &Task::aborted, this, install);
         connect(job.get(), &Task::succeeded, [response, this, &vers, install, &pack] {
@@ -204,10 +205,16 @@ void ResourceFolderModel::installResourceWithFlameMetadata(QString path, ModPlat
     }
 }
 
-bool ResourceFolderModel::uninstallResource(QString file_name, bool preserve_metadata)
+bool ResourceFolderModel::uninstallResource(const QString& file_name, bool preserve_metadata)
 {
     for (auto& resource : m_resources) {
-        if (resource->fileinfo().fileName() == file_name) {
+        auto resourceFileInfo = resource->fileinfo();
+        auto resourceFileName = resource->fileinfo().fileName();
+        if (!resource->enabled() && resourceFileName.endsWith(".disabled")) {
+            resourceFileName.chop(9);
+        }
+
+        if (resourceFileName == file_name) {
             auto res = resource->destroy(indexDir(), preserve_metadata, false);
 
             update();
@@ -328,7 +335,20 @@ bool ResourceFolderModel::update()
         },
         Qt::ConnectionType::QueuedConnection);
 
-    QThreadPool::globalInstance()->start(m_current_update_task.get());
+    Task::Ptr preUpdate{ createPreUpdateTask() };
+
+    if (preUpdate != nullptr) {
+        auto task = new SequentialTask("ResourceFolderModel::update");
+
+        task->addTask(preUpdate);
+        task->addTask(m_current_update_task);
+
+        connect(task, &Task::finished, [task] { task->deleteLater(); });
+
+        QThreadPool::globalInstance()->start(task);
+    } else {
+        QThreadPool::globalInstance()->start(m_current_update_task.get());
+    }
 
     return true;
 }

@@ -51,14 +51,14 @@ void LaunchTask::init()
     m_instance->setRunning(true);
 }
 
-shared_qobject_ptr<LaunchTask> LaunchTask::create(MinecraftInstancePtr inst)
+std::unique_ptr<LaunchTask> LaunchTask::create(MinecraftInstance* inst)
 {
-    shared_qobject_ptr<LaunchTask> proc(new LaunchTask(inst));
-    proc->init();
-    return proc;
+    auto task = std::unique_ptr<LaunchTask>(new LaunchTask(inst));
+    task->init();
+    return task;
 }
 
-LaunchTask::LaunchTask(MinecraftInstancePtr instance) : m_instance(instance) {}
+LaunchTask::LaunchTask(MinecraftInstance* instance) : m_instance(instance) {}
 
 void LaunchTask::appendStep(shared_qobject_ptr<LaunchStep> step)
 {
@@ -214,10 +214,10 @@ shared_qobject_ptr<LogModel> LaunchTask::getLogModel()
     return m_logModel;
 }
 
-bool LaunchTask::parseXmlLogs(QString const& line, MessageLevel::Enum level)
+bool LaunchTask::parseXmlLogs(QString const& line, MessageLevel level)
 {
     LogParser* parser;
-    switch (level) {
+    switch (static_cast<MessageLevel::Enum>(level)) {
         case MessageLevel::StdErr:
             parser = &m_stderrParser;
             break;
@@ -234,7 +234,7 @@ bool LaunchTask::parseXmlLogs(QString const& line, MessageLevel::Enum level)
         auto& model = *getLogModel();
         model.append(MessageLevel::Error, tr("[Log4j Parse Error] Failed to parse log4j log event: %1").arg(err.value().errMessage));
         return false;
-    } 
+    }
 
     if (items.isEmpty())
         return true;
@@ -254,13 +254,10 @@ bool LaunchTask::parseXmlLogs(QString const& line, MessageLevel::Enum level)
         } else if (std::holds_alternative<LogParser::PlainText>(item)) {
             auto msg = std::get<LogParser::PlainText>(item).message;
 
-            MessageLevel::Enum newLevel = MessageLevel::fromLine(msg);
+            MessageLevel newLevel = MessageLevel::takeFromLine(msg);
 
             if (newLevel == MessageLevel::Unknown)
-                newLevel = LogParser::guessLevel(line);
-
-            if (newLevel == MessageLevel::Unknown)
-                newLevel = model->previousLevel();
+                newLevel = LogParser::guessLevel(line, model->previousLevel());
 
             msg = censorPrivateInfo(msg);
 
@@ -271,14 +268,14 @@ bool LaunchTask::parseXmlLogs(QString const& line, MessageLevel::Enum level)
     return true;
 }
 
-void LaunchTask::onLogLines(const QStringList& lines, MessageLevel::Enum defaultLevel)
+void LaunchTask::onLogLines(const QStringList& lines, MessageLevel defaultLevel)
 {
     for (auto& line : lines) {
         onLogLine(line, defaultLevel);
     }
 }
 
-void LaunchTask::onLogLine(QString line, MessageLevel::Enum level)
+void LaunchTask::onLogLine(QString line, MessageLevel level)
 {
     if (parseXmlLogs(line, level)) {
         return;

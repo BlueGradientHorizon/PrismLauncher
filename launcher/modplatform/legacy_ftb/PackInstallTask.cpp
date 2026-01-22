@@ -52,7 +52,7 @@
 
 namespace LegacyFTB {
 
-PackInstallTask::PackInstallTask(shared_qobject_ptr<QNetworkAccessManager> network, const Modpack& pack, QString version)
+PackInstallTask::PackInstallTask(QNetworkAccessManager* network, const Modpack& pack, QString version)
 {
     m_pack = pack;
     m_version = version;
@@ -102,12 +102,6 @@ void PackInstallTask::unzip()
 
     QDir extractDir(m_stagingPath);
 
-    m_packZip.reset(new QuaZip(archivePath));
-    if (!m_packZip->open(QuaZip::mdUnzip)) {
-        emitFailed(tr("Failed to open modpack file %1!").arg(archivePath));
-        return;
-    }
-
     m_extractFuture = QtConcurrent::run(QThreadPool::globalInstance(), QOverload<QString, QString>::of(MMCZip::extractDir), archivePath,
                                         extractDir.absolutePath() + "/unzip");
     connect(&m_extractFutureWatcher, &QFutureWatcher<QStringList>::finished, this, &PackInstallTask::onUnzipFinished);
@@ -139,10 +133,9 @@ void PackInstallTask::install()
     }
 
     QString instanceConfigPath = FS::PathCombine(m_stagingPath, "instance.cfg");
-    auto instanceSettings = std::make_shared<INISettingsObject>(instanceConfigPath);
-    instanceSettings->suspendSave();
+    MinecraftInstance instance(m_globalSettings, std::make_unique<INISettingsObject>(instanceConfigPath), m_stagingPath);
+    SettingsObject::Lock lock(instance.settings());
 
-    MinecraftInstance instance(m_globalSettings, instanceSettings, m_stagingPath);
     auto components = instance.getPackProfile();
     components->buildingFromScratch();
     components->setComponentVersion("net.minecraft", m_pack.mcVersion, true);
@@ -210,7 +203,6 @@ void PackInstallTask::install()
         m_instIcon = "ftb_logo";
     }
     instance.setIconKey(m_instIcon);
-    instanceSettings->resumeSave();
 
     emitSucceeded();
 }

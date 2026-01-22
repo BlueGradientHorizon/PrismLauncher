@@ -39,8 +39,6 @@
 #include <QtConcurrent>
 #include <algorithm>
 
-#include <quazip/quazip.h>
-
 #include "FileSystem.h"
 #include "Json.h"
 #include "MMCZip.h"
@@ -89,7 +87,7 @@ void PackInstallTask::executeTask()
     NetJob::Ptr netJob{ new NetJob("ATLauncher::VersionFetch", APPLICATION->network()) };
     auto searchUrl =
         QString(BuildConfig.ATL_DOWNLOAD_SERVER_URL + "packs/%1/versions/%2/Configs.json").arg(m_pack_safe_name).arg(m_version_name);
-    netJob->addNetAction(Net::ApiDownload::makeByteArray(QUrl(searchUrl), response));
+    netJob->addNetAction(Net::ApiDownload::makeByteArray(QUrl(searchUrl), response.get()));
 
     connect(netJob.get(), &NetJob::succeeded, this, &PackInstallTask::onDownloadSucceeded);
     connect(netJob.get(), &NetJob::failed, this, &PackInstallTask::onDownloadFailed);
@@ -425,7 +423,7 @@ QString PackInstallTask::detectLibrary(const VersionLibrary& library)
     return "org.multimc.atlauncher:" + library.md5 + ":1";
 }
 
-bool PackInstallTask::createLibrariesComponent(QString instanceRoot, std::shared_ptr<PackProfile> profile)
+bool PackInstallTask::createLibrariesComponent(QString instanceRoot, PackProfile* profile)
 {
     if (m_version.libraries.isEmpty()) {
         return true;
@@ -534,11 +532,11 @@ bool PackInstallTask::createLibrariesComponent(QString instanceRoot, std::shared
     file.write(OneSixVersionFormat::versionFileToJson(f).toJson());
     file.close();
 
-    profile->appendComponent(ComponentPtr{ new Component(profile.get(), target_id, f) });
+    profile->appendComponent(ComponentPtr{ new Component(profile, target_id, f) });
     return true;
 }
 
-bool PackInstallTask::createPackComponent(QString instanceRoot, std::shared_ptr<PackProfile> profile)
+bool PackInstallTask::createPackComponent(QString instanceRoot, PackProfile* profile)
 {
     if (m_version.mainClass.mainClass.isEmpty() && m_version.extraArguments.arguments.isEmpty()) {
         return true;
@@ -623,7 +621,7 @@ bool PackInstallTask::createPackComponent(QString instanceRoot, std::shared_ptr<
     file.write(OneSixVersionFormat::versionFileToJson(f).toJson());
     file.close();
 
-    profile->appendComponent(ComponentPtr{ new Component(profile.get(), target_id, f) });
+    profile->appendComponent(ComponentPtr{ new Component(profile, target_id, f) });
     return true;
 }
 
@@ -675,13 +673,6 @@ void PackInstallTask::extractConfigs()
     setStatus(tr("Extracting configs..."));
 
     QDir extractDir(m_stagingPath);
-
-    QuaZip packZip(archivePath);
-    if (!packZip.open(QuaZip::mdUnzip)) {
-        emitFailed(tr("Failed to open pack configs %1!").arg(archivePath));
-        return;
-    }
-
     m_extractFuture = QtConcurrent::run(QThreadPool::globalInstance(), QOverload<QString, QString>::of(MMCZip::extractDir), archivePath,
                                         extractDir.absolutePath() + "/minecraft");
     connect(&m_extractFutureWatcher, &QFutureWatcher<QStringList>::finished, this, [this]() { downloadMods(); });
@@ -997,10 +988,9 @@ void PackInstallTask::install()
     setStatus(tr("Installing modpack"));
 
     auto instanceConfigPath = FS::PathCombine(m_stagingPath, "instance.cfg");
-    auto instanceSettings = std::make_shared<INISettingsObject>(instanceConfigPath);
-    instanceSettings->suspendSave();
+    MinecraftInstance instance(m_globalSettings, std::make_unique<INISettingsObject>(instanceConfigPath), m_stagingPath);
+    SettingsObject::Lock lock(instance.settings());
 
-    MinecraftInstance instance(m_globalSettings, instanceSettings, m_stagingPath);
     auto components = instance.getPackProfile();
     components->buildingFromScratch();
 
@@ -1056,7 +1046,6 @@ void PackInstallTask::install()
     instance.setName(name());
     instance.setIconKey(m_instIcon);
     instance.setManagedPack("atlauncher", m_pack_safe_name, m_pack_name, m_version_name, m_version_name);
-    instanceSettings->resumeSave();
 
     jarmods.clear();
     emitSucceeded();

@@ -148,8 +148,12 @@ bool LaunchController::askPlayDemo()
     return box.clickedButton() == demoButton;
 }
 
-QString LaunchController::askOfflineName(QString playerName, bool demo, bool& ok)
+QString LaunchController::askOfflineName(QString playerName, bool demo, bool* ok)
 {
+    if (ok != nullptr) {
+        *ok = false;
+    }
+
     // we ask the user for a player name
     QString message = tr("Choose your offline mode player name.");
     if (demo) {
@@ -166,9 +170,12 @@ QString LaunchController::askOfflineName(QString playerName, bool demo, bool& ok
         return {};
     }
 
-    if (const QString name = dialog.getUsername(); !name.isEmpty()) {
-        usedname = name;
-        APPLICATION->settings()->set("LastOfflinePlayerName", usedname);
+    const QString name = dialog.getUsername();
+    usedname = name;
+    APPLICATION->settings()->set("LastOfflinePlayerName", usedname);
+
+    if (ok != nullptr) {
+        *ok = true;
     }
     return usedname;
 }
@@ -185,7 +192,7 @@ void LaunchController::login()
         if (m_demo) {
             // we ask the user for a player name
             bool ok = false;
-            auto name = askOfflineName("Player", m_demo, ok);
+            auto name = askOfflineName("Player", m_demo, &ok);
             if (ok) {
                 m_session = std::make_shared<AuthSession>();
                 static const QRegularExpression s_removeChars("[{}-]");
@@ -213,7 +220,10 @@ void LaunchController::login()
         if (tries > 0 && tries % 3 == 0) {
             auto result =
                 QMessageBox::question(m_parentWidget, tr("Continue launch?"),
-                                      tr("It looks like we couldn't launch after %1 tries. Do you want to continue trying?").arg(tries));
+                                      tr("It looks like we couldn't launch after %1 tries. Usually this can be fixed by logging out and "
+                                         "logging back in your Microsoft account. If that doesn't work, Minecraft authentication servers "
+                                         "may be having an outage or you may need a VPN in your region. Do you want to continue trying?")
+                                          .arg(tries));
 
             if (result == QMessageBox::No) {
                 emitAborted();
@@ -259,12 +269,12 @@ void LaunchController::login()
             }
             /* fallthrough */
             case AccountState::Online: {
-                if (!m_session->wants_online) {
+                if (!m_session->wants_online && m_accountToUse->accountType() != AccountType::Offline) {
                     // we ask the user for a player name
                     bool ok = false;
                     QString name;
                     if (m_offlineName.isEmpty()) {
-                        name = askOfflineName(m_session->player_name, m_session->demo, ok);
+                        name = askOfflineName(m_session->player_name, m_session->demo, &ok);
                         if (!ok) {
                             tryagain = false;
                             break;
@@ -396,10 +406,10 @@ void LaunchController::launchInstance()
     if (!console && showConsole) {
         APPLICATION->showInstanceWindow(m_instance);
     }
-    connect(m_launcher.get(), &LaunchTask::readyForLaunch, this, &LaunchController::readyForLaunch);
-    connect(m_launcher.get(), &LaunchTask::succeeded, this, &LaunchController::onSucceeded);
-    connect(m_launcher.get(), &LaunchTask::failed, this, &LaunchController::onFailed);
-    connect(m_launcher.get(), &LaunchTask::requestProgress, this, &LaunchController::onProgressRequested);
+    connect(m_launcher, &LaunchTask::readyForLaunch, this, &LaunchController::readyForLaunch);
+    connect(m_launcher, &LaunchTask::succeeded, this, &LaunchController::onSucceeded);
+    connect(m_launcher, &LaunchTask::failed, this, &LaunchController::onFailed);
+    connect(m_launcher, &LaunchTask::requestProgress, this, &LaunchController::onProgressRequested);
 
     // Prepend Online and Auth Status
     QString online_mode;
@@ -409,19 +419,18 @@ void LaunchController::launchInstance()
         // Prepend Server Status
         QStringList servers = { "login.microsoftonline.com", "session.minecraft.net", "textures.minecraft.net", "api.mojang.com" };
 
-        m_launcher->prependStep(makeShared<PrintServers>(m_launcher.get(), servers));
+        m_launcher->prependStep(makeShared<PrintServers>(m_launcher, servers));
     } else {
         online_mode = m_demo ? "demo" : "offline";
     }
 
-    m_launcher->prependStep(
-        makeShared<TextPrint>(m_launcher.get(), "Launched instance in " + online_mode + " mode\n", MessageLevel::Launcher));
+    m_launcher->prependStep(makeShared<TextPrint>(m_launcher, "Launched instance in " + online_mode + " mode\n", MessageLevel::Launcher));
 
     // Prepend Version
     {
         auto versionString = QString("%1 version: %2 (%3)")
                                  .arg(BuildConfig.LAUNCHER_DISPLAYNAME, BuildConfig.printableVersionString(), BuildConfig.BUILD_PLATFORM);
-        m_launcher->prependStep(makeShared<TextPrint>(m_launcher.get(), versionString + "\n\n", MessageLevel::Launcher));
+        m_launcher->prependStep(makeShared<TextPrint>(m_launcher, versionString + "\n\n", MessageLevel::Launcher));
     }
     m_launcher->start();
 }

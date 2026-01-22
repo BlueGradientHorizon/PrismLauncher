@@ -62,7 +62,6 @@ APIPage::APIPage(QWidget* parent) : QWidget(parent), ui(new Ui::APIPage)
     static const QRegularExpression s_validUrlRegExp("https?://.+");
     static const QRegularExpression s_validMSAClientID(
         QRegularExpression::anchoredPattern("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"));
-    static const QRegularExpression s_validFlameKey(QRegularExpression::anchoredPattern("\\$2[ayb]\\$.{56}"));
 
     ui->setupUi(this);
 
@@ -79,7 +78,6 @@ APIPage::APIPage(QWidget* parent) : QWidget(parent), ui(new Ui::APIPage)
     ui->resourceURL->setValidator(new QRegularExpressionValidator(s_validUrlRegExp, ui->resourceURL));
     ui->baseURLEntry->setValidator(new QRegularExpressionValidator(s_validUrlRegExp, ui->baseURLEntry));
     ui->msaClientID->setValidator(new QRegularExpressionValidator(s_validMSAClientID, ui->msaClientID));
-    ui->flameKey->setValidator(new QRegularExpressionValidator(s_validFlameKey, ui->flameKey));
 
     ui->metaURL->setPlaceholderText(BuildConfig.META_URL);
     ui->userAgentLineEdit->setPlaceholderText(BuildConfig.USER_AGENT);
@@ -172,13 +170,17 @@ void APIPage::applySettings()
         path.append('/');
         resourceURL.setPath(path);
     }
+
+    auto isLocalhost = [](const QUrl& url) { return url.host() == "localhost" || url.host() == "127.0.0.1" || url.host() == "::1"; };
+    auto isUnsafe = [isLocalhost](const QUrl& url) { return !url.isEmpty() && url.scheme() == "http" && !isLocalhost(url); };
+
     // Don't allow HTTP, since meta is basically RCE with all the jar files.
-    if (!metaURL.isEmpty() && metaURL.scheme() == "http") {
+    if (isUnsafe(metaURL)) {
         metaURL.setScheme("https");
     }
 
     // Also don't allow HTTP
-    if (!resourceURL.isEmpty() && resourceURL.scheme() == "http") {
+    if (isUnsafe(resourceURL)) {
         resourceURL.setScheme("https");
     }
 

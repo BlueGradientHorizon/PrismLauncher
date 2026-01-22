@@ -49,7 +49,7 @@
 
 namespace ResourceDownload {
 
-ResourceDownloadDialog::ResourceDownloadDialog(QWidget* parent, const std::shared_ptr<ResourceFolderModel> base_model)
+ResourceDownloadDialog::ResourceDownloadDialog(QWidget* parent, ResourceFolderModel* base_model)
     : QDialog(parent)
     , m_base_model(base_model)
     , m_buttons(QDialogButtonBox::Help | QDialogButtonBox::Ok | QDialogButtonBox::Cancel)
@@ -60,6 +60,8 @@ ResourceDownloadDialog::ResourceDownloadDialog(QWidget* parent, const std::share
     resize(static_cast<int>(std::max(0.5 * parent->width(), 400.0)), static_cast<int>(std::max(0.75 * parent->height(), 400.0)));
 
     setWindowIcon(QIcon::fromTheme("new"));
+
+    m_buttons.setContentsMargins(0, 0, 6, 6);
 
     // Bonk Qt over its stupid head and make sure it understands which button is the default one...
     // See: https://stackoverflow.com/questions/24556831/qbuttonbox-set-default-button
@@ -114,6 +116,8 @@ void ResourceDownloadDialog::reject()
 // won't work with subclasses if we put it in this ctor.
 void ResourceDownloadDialog::initializeContainer()
 {
+    layout()->setContentsMargins(0, 0, 0, 0);
+
     m_container = new PageContainer(this, {}, this);
     m_container->setSizePolicy(QSizePolicy::Policy::Preferred, QSizePolicy::Policy::Expanding);
     m_container->layout()->setContentsMargins(0, 0, 0, 0);
@@ -185,9 +189,8 @@ void ResourceDownloadDialog::confirm()
     });
     for (auto& task : selected) {
         auto extraInfo = dependencyExtraInfo.value(task->getPack()->addonId.toString());
-        confirm_dialog->appendResource({ task->getName(), task->getFilename(), task->getCustomPath(),
-                                         ModPlatform::ProviderCapabilities::name(task->getProvider()), extraInfo.required_by,
-                                         task->getVersion().version_type.toString(), !extraInfo.maybe_installed });
+        confirm_dialog->appendResource({ task->getName(), task->getFilename(), ModPlatform::ProviderCapabilities::name(task->getProvider()),
+                                         extraInfo.required_by, task->getVersion().version_type.toString(), !extraInfo.maybe_installed });
     }
 
     if (confirm_dialog->exec()) {
@@ -266,7 +269,7 @@ void ResourceDownloadDialog::selectedPageChanged(BasePage* previous, BasePage* s
     result->setSearchTerm(prev_page->getSearchTerm());
 }
 
-ModDownloadDialog::ModDownloadDialog(QWidget* parent, const std::shared_ptr<ModFolderModel>& mods, BaseInstance* instance)
+ModDownloadDialog::ModDownloadDialog(QWidget* parent, ModFolderModel* mods, BaseInstance* instance)
     : ResourceDownloadDialog(parent, mods), m_instance(instance)
 {
     setWindowTitle(dialogTitle());
@@ -295,7 +298,7 @@ QList<BasePage*> ModDownloadDialog::getPages()
 GetModDependenciesTask::Ptr ModDownloadDialog::getModDependenciesTask()
 {
     if (!APPLICATION->settings()->get("ModDependenciesDisabled").toBool()) {  // dependencies
-        if (auto model = dynamic_cast<ModFolderModel*>(getBaseModel().get()); model) {
+        if (auto model = dynamic_cast<ModFolderModel*>(getBaseModel()); model) {
             QList<std::shared_ptr<GetModDependenciesTask::PackDependency>> selectedVers;
             for (auto& selected : getTasks()) {
                 selectedVers.append(std::make_shared<GetModDependenciesTask::PackDependency>(selected->getPack(), selected->getVersion()));
@@ -307,9 +310,7 @@ GetModDependenciesTask::Ptr ModDownloadDialog::getModDependenciesTask()
     return nullptr;
 }
 
-ResourcePackDownloadDialog::ResourcePackDownloadDialog(QWidget* parent,
-                                                       const std::shared_ptr<ResourcePackFolderModel>& resource_packs,
-                                                       BaseInstance* instance)
+ResourcePackDownloadDialog::ResourcePackDownloadDialog(QWidget* parent, ResourcePackFolderModel* resource_packs, BaseInstance* instance)
     : ResourceDownloadDialog(parent, resource_packs), m_instance(instance)
 {
     setWindowTitle(dialogTitle());
@@ -332,9 +333,7 @@ QList<BasePage*> ResourcePackDownloadDialog::getPages()
     return pages;
 }
 
-TexturePackDownloadDialog::TexturePackDownloadDialog(QWidget* parent,
-                                                     const std::shared_ptr<TexturePackFolderModel>& resource_packs,
-                                                     BaseInstance* instance)
+TexturePackDownloadDialog::TexturePackDownloadDialog(QWidget* parent, TexturePackFolderModel* resource_packs, BaseInstance* instance)
     : ResourceDownloadDialog(parent, resource_packs), m_instance(instance)
 {
     setWindowTitle(dialogTitle());
@@ -357,9 +356,7 @@ QList<BasePage*> TexturePackDownloadDialog::getPages()
     return pages;
 }
 
-ShaderPackDownloadDialog::ShaderPackDownloadDialog(QWidget* parent,
-                                                   const std::shared_ptr<ShaderPackFolderModel>& shaders,
-                                                   BaseInstance* instance)
+ShaderPackDownloadDialog::ShaderPackDownloadDialog(QWidget* parent, ShaderPackFolderModel* shaders, BaseInstance* instance)
     : ResourceDownloadDialog(parent, shaders), m_instance(instance)
 {
     setWindowTitle(dialogTitle());
@@ -397,9 +394,7 @@ void ResourceDownloadDialog::setResourceMetadata(const std::shared_ptr<Metadata:
     page->openProject(meta->project_id);
 }
 
-DataPackDownloadDialog::DataPackDownloadDialog(QWidget* parent,
-                                               const std::shared_ptr<DataPackFolderModel>& data_packs,
-                                               BaseInstance* instance)
+DataPackDownloadDialog::DataPackDownloadDialog(QWidget* parent, DataPackFolderModel* data_packs, BaseInstance* instance)
     : ResourceDownloadDialog(parent, data_packs), m_instance(instance)
 {
     setWindowTitle(dialogTitle());

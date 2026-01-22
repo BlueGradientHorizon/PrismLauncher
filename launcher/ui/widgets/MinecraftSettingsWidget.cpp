@@ -48,7 +48,7 @@
 #include "minecraft/auth/AccountList.h"
 #include "settings/Setting.h"
 
-MinecraftSettingsWidget::MinecraftSettingsWidget(MinecraftInstancePtr instance, QWidget* parent)
+MinecraftSettingsWidget::MinecraftSettingsWidget(MinecraftInstance* instance, QWidget* parent)
     : QWidget(parent), m_instance(std::move(instance)), m_ui(new Ui::MinecraftSettingsWidget)
 {
     m_ui->setupUi(this);
@@ -154,7 +154,7 @@ MinecraftSettingsWidget::~MinecraftSettingsWidget()
 
 void MinecraftSettingsWidget::loadSettings()
 {
-    SettingsObjectPtr settings;
+    SettingsObject* settings;
 
     if (m_instance != nullptr)
         settings = m_instance->settings();
@@ -224,7 +224,8 @@ void MinecraftSettingsWidget::loadSettings()
     m_ui->useZink->setChecked(settings->get("UseZink").toBool());
 
     if (m_instance != nullptr) {
-        m_ui->serverJoinGroupBox->setChecked(settings->get("JoinServerOnLaunch").toBool());
+        // HACK: if we change enable state of child widgets while it's unchecked this creates inconsistency
+        m_ui->serverJoinGroupBox->setChecked(true);
 
         if (auto server = settings->get("JoinServerOnLaunchAddress").toString(); !server.isEmpty()) {
             m_ui->serverJoinAddress->setText(server);
@@ -241,9 +242,11 @@ void MinecraftSettingsWidget::loadSettings()
         } else {
             m_ui->serverJoinAddressButton->setChecked(true);
             m_ui->worldJoinButton->setChecked(false);
-            m_ui->serverJoinAddress->setEnabled(m_ui->serverJoinGroupBox->isChecked());
+            m_ui->serverJoinAddress->setEnabled(true);
             m_ui->worldsCb->setEnabled(false);
         }
+
+        m_ui->serverJoinGroupBox->setChecked(settings->get("JoinServerOnLaunch").toBool());
 
         m_ui->instanceAccountGroupBox->setChecked(settings->get("UseAccountForInstance").toBool());
         updateAccountsMenu(*settings);
@@ -297,7 +300,7 @@ void MinecraftSettingsWidget::loadSettings()
 
 void MinecraftSettingsWidget::saveSettings()
 {
-    SettingsObjectPtr settings;
+    SettingsObject* settings;
 
     if (m_instance != nullptr)
         settings = m_instance->settings();
@@ -488,7 +491,7 @@ void MinecraftSettingsWidget::openGlobalSettings()
         APPLICATION->ShowGlobalSettings(this, "minecraft-settings");
 }
 
-void MinecraftSettingsWidget::updateAccountsMenu(const SettingsObject& settings)
+void MinecraftSettingsWidget::updateAccountsMenu(SettingsObject& settings)
 {
     m_ui->instanceAccountSelector->clear();
     auto accounts = APPLICATION->accounts();

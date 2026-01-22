@@ -30,13 +30,14 @@
 #include <memory>
 #include "Application.h"
 #include "Json.h"
-#include "MMCZip.h"
 #include "minecraft/PackProfile.h"
 #include "minecraft/mod/ModFolderModel.h"
 #include "modplatform/ModIndex.h"
 #include "modplatform/flame/FlameModIndex.h"
 #include "modplatform/helpers/HashUtils.h"
 #include "tasks/Task.h"
+
+#include "archive/ExportToZipTask.h"
 
 const QString FlamePackExportTask::TEMPLATE = "<li><a href=\"{url}\">{name}{authors}</a></li>\n";
 const QStringList FlamePackExportTask::FILE_EXTENSIONS({ "jar", "zip" });
@@ -76,7 +77,7 @@ void FlamePackExportTask::collectFiles()
     resolvedFiles.clear();
 
     m_options.instance->loaderModList()->update();
-    connect(m_options.instance->loaderModList().get(), &ModFolderModel::updateFinished, this, &FlamePackExportTask::collectHashes);
+    connect(m_options.instance->loaderModList(), &ModFolderModel::updateFinished, this, &FlamePackExportTask::collectHashes);
 }
 
 void FlamePackExportTask::collectHashes()
@@ -173,7 +174,7 @@ void FlamePackExportTask::makeApiRequest()
         fingerprints.push_back(murmur.toUInt());
     }
 
-    task.reset(api.matchFingerprints(fingerprints, response));
+    task.reset(api.matchFingerprints(fingerprints, response.get()));
 
     connect(task.get(), &Task::succeeded, this, [this, response] {
         QJsonParseError parseError{};
@@ -251,9 +252,9 @@ void FlamePackExportTask::getProjectsInfo()
         buildZip();
         return;
     } else if (addonIds.size() == 1) {
-        projTask = api.getProject(*addonIds.begin(), response);
+        projTask = api.getProject(*addonIds.begin(), response.get());
     } else {
-        projTask = api.getProjects(addonIds, response);
+        projTask = api.getProjects(addonIds, response.get());
     }
 
     connect(projTask.get(), &Task::succeeded, this, [this, response, addonIds] {
@@ -318,7 +319,7 @@ void FlamePackExportTask::buildZip()
     setStatus(tr("Adding files..."));
     setProgress(4, 5);
 
-    auto zipTask = makeShared<MMCZip::ExportToZipTask>(m_options.output, m_gameRoot, files, "overrides/", true, false);
+    auto zipTask = makeShared<MMCZip::ExportToZipTask>(m_options.output, m_gameRoot, files, "overrides/", true);
     zipTask->addExtraFile("manifest.json", generateIndex());
     zipTask->addExtraFile("modlist.html", generateHTML());
 
