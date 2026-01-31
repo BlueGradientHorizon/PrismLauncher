@@ -40,7 +40,7 @@ Task::Ptr ModrinthAPI::currentVersions(const QStringList& hashes, QString hash_f
 
 Task::Ptr ModrinthAPI::latestVersion(QString hash,
                                      QString hash_format,
-                                     std::optional<std::list<Version>> mcVersions,
+                                     std::optional<std::vector<Version>> mcVersions,
                                      std::optional<ModPlatform::ModLoaderTypes> loaders,
                                      QByteArray* response)
 {
@@ -70,7 +70,7 @@ Task::Ptr ModrinthAPI::latestVersion(QString hash,
 
 Task::Ptr ModrinthAPI::latestVersions(const QStringList& hashes,
                                       QString hash_format,
-                                      std::optional<std::list<Version>> mcVersions,
+                                      std::optional<std::vector<Version>> mcVersions,
                                       std::optional<ModPlatform::ModLoaderTypes> loaders,
                                       QByteArray* response)
 {
@@ -135,8 +135,8 @@ QList<ModPlatform::Category> ModrinthAPI::loadCategories(QByteArray* response, Q
     QJsonParseError parse_error{};
     QJsonDocument doc = QJsonDocument::fromJson(*response, &parse_error);
     if (parse_error.error != QJsonParseError::NoError) {
-        qWarning() << "Error while parsing JSON response from categories at " << parse_error.offset
-                   << " reason: " << parse_error.errorString();
+        qWarning() << "Error while parsing JSON response from categories at" << parse_error.offset
+                   << "reason:" << parse_error.errorString();
         qWarning() << *response;
         return categories;
     }

@@ -102,6 +102,9 @@ set(CORE_SOURCES
     MMCTime.cpp
 
     MTPixmapCache.h
+
+    # Assertion helper
+    AssertHelpers.h
 )
 if (UNIX AND NOT CYGWIN AND NOT APPLE)
     set(CORE_SOURCES
@@ -251,8 +254,8 @@ set(MINECRAFT_SOURCES
 
     minecraft/update/AssetUpdateTask.h
     minecraft/update/AssetUpdateTask.cpp
-    minecraft/update/FMLLibrariesTask.cpp
-    minecraft/update/FMLLibrariesTask.h
+    minecraft/update/LegacyFMLLibrariesTask.cpp
+    minecraft/update/LegacyFMLLibrariesTask.h
     minecraft/update/FoldersTask.cpp
     minecraft/update/FoldersTask.h
     minecraft/update/LibrariesTask.cpp
@@ -262,6 +265,8 @@ set(MINECRAFT_SOURCES
     minecraft/launch/ClaimAccount.h
     minecraft/launch/CreateGameFolders.cpp
     minecraft/launch/CreateGameFolders.h
+    minecraft/launch/EnsureOfflineLibraries.cpp
+    minecraft/launch/EnsureOfflineLibraries.h
     minecraft/launch/ModMinecraftJar.cpp
     minecraft/launch/ModMinecraftJar.h
     minecraft/launch/ExtractNatives.cpp
@@ -1614,7 +1619,7 @@ if(WIN32 OR (UNIX AND APPLE))
     )
     # FIXME: remove this crap once we stop using msys2
     if(MINGW)
-        # i've not found a solution better than injecting the config vars like this... 
+        # i've not found a solution better than injecting the config vars like this...
         # with install(CODE" for everything everything just breaks
         install(CODE "
             set(QT_PLUGINS_DIR \"${QT_PLUGINS_DIR}\")
@@ -1622,7 +1627,7 @@ if(WIN32 OR (UNIX AND APPLE))
             set(QT_LIBEXECS_DIR \"${QT_LIBEXECS_DIR}\")
             set(CMAKE_SYSTEM_LIBRARY_PATH \"${CMAKE_SYSTEM_LIBRARY_PATH}\")
             set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")
-            " 
+            "
             COMPONENT bundle)
 
         install(CODE [[
