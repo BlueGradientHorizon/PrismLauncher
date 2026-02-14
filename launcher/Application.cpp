@@ -126,7 +126,6 @@
 #include <LocalPeer.h>
 
 #include <stdlib.h>
-#include <sys.h>
 #include "SysInfo.h"
 
 #ifdef Q_OS_LINUX
@@ -158,7 +157,6 @@
 #endif
 #include <windows.h>
 #include <QStyleHints>
-#include "console/WindowsConsole.h"
 #endif
 
 #include "console/Console.h"
@@ -292,21 +290,9 @@ std::tuple<QDateTime, QString, QString, QString, QString> read_lock_File(const Q
 
 Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 {
-#if defined Q_OS_WIN32
-    // attach the parent console if stdout not already captured
-    if (AttachWindowsConsole()) {
-        consoleAttached = true;
-        if (auto err = EnableAnsiSupport(); !err) {
-            isANSIColorConsole = true;
-        } else {
-            std::cout << "Error setting up ansi console" << err.message() << std::endl;
-        }
-    }
-#else
     if (console::isConsole()) {
         isANSIColorConsole = true;
     }
-#endif
 
     setOrganizationName(BuildConfig.LAUNCHER_NAME);
     setOrganizationDomain(BuildConfig.LAUNCHER_DOMAIN);
@@ -1023,6 +1009,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         m_metacache->addBase("translations", QDir("translations").absolutePath());
         m_metacache->addBase("meta", QDir("meta").absolutePath());
         m_metacache->addBase("java", QDir("cache/java").absolutePath());
+        m_metacache->addBase("feed", QDir("cache/feed").absolutePath());
         m_metacache->Load();
         qInfo() << "<> Cache initialized.";
     }
@@ -1415,16 +1402,6 @@ Application::~Application()
 {
     // Shut down logger by setting the logger function to nothing
     qInstallMessageHandler(nullptr);
-
-#if defined Q_OS_WIN32
-    // Detach from Windows console
-    if (consoleAttached) {
-        fclose(stdout);
-        fclose(stdin);
-        fclose(stderr);
-        FreeConsole();
-    }
-#endif
 }
 
 void Application::messageReceived(const QByteArray& message)
