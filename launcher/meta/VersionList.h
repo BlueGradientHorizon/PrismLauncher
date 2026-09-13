@@ -37,7 +37,7 @@ class VersionList : public BaseVersionList, public BaseEntity {
     enum Roles { UidRole = Qt::UserRole + 100, TimeRole, RequiresRole, VersionPtrRole };
 
     bool isLoaded() override;
-    Task::Ptr getLoadTask() override;
+    Task::Ptr getLoadTask(bool forceReload = false) override;
     const BaseVersion::Ptr at(int i) const override;
     int count() const override;
     void sortVersions() override;
@@ -45,6 +45,7 @@ class VersionList : public BaseVersionList, public BaseEntity {
     BaseVersion::Ptr getRecommended() const override;
     Version::Ptr getRecommendedForParent(const QString& uid, const QString& version);
     Version::Ptr getLatestForParent(const QString& uid, const QString& version);
+    Version::Ptr getLatest(bool onlyRelease = true);
 
     QVariant data(const QModelIndex& index, int role) const override;
     RoleList providesRoles() const override;
